@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"context"
-	"grpc/pro"
+	"grpc-example/protoc/greeter"
 	"log"
 	"time"
 
@@ -12,20 +14,34 @@ import (
 )
 
 const (
-	ADDRESS = "localhost:50051"
+	ADDRESS = "matosiki.localhost:50051"
 )
 
 func main() {
-	//通过grpc 库 建立一个连接
-	conn, err := grpc.Dial(ADDRESS, grpc.WithInsecure())
+	cred, err := credentials.NewClientTLSFromFile("./certs/ca.crt", "")
 	if err != nil {
-		return
+		log.Fatalln(err)
+	}
+
+	//通过grpc 库 建立一个连接
+	//conn, err := grpc.Dial(ADDRESS, grpc.WithInsecure())
+	conn, err := grpc.Dial(ADDRESS,  grpc.WithTransportCredentials(cred))
+	if err != nil {
+		log.Fatalln(err)
 	}
 	defer conn.Close()
 	//通过刚刚的连接 生成一个client对象。
-	c := pro.NewGreeterClient(conn)
+	c := greeter.NewGreeterClient(conn)
+	say, err := c.Say(context.TODO(), &greeter.Request{
+		Name: "john",
+	})
+	if err != nil {
+		log.Fatalln(err)
+	}
+	log.Println("result:", say.Message)
+
 	//调用服务端推送流
-	reqstreamData := &pro.StreamReqData{Data: "aaa"}
+	reqstreamData := &greeter.StreamReqData{Data: "client request stream"}
 	res, _ := c.GetStream(context.Background(), reqstreamData)
 	for {
 		aa, err := res.Recv()
@@ -40,24 +56,36 @@ func main() {
 	i := 1
 	for {
 		i++
-		putRes.Send(&pro.StreamReqData{Data: "ss"})
+		putRes.Send(&greeter.StreamReqData{Data: "client request putStream"})
 		time.Sleep(time.Second)
-		if i > 10 {
+		if i > 5 {
 			break
 		}
 	}
 	//服务端 客户端 双向流
 	allStr, _ := c.AllStream(context.Background())
 	go func() {
+		var i = 0
 		for {
-			data, _ := allStr.Recv()
-			log.Println(data)
+			i++
+			if data, err := allStr.Recv(); err == nil {
+				log.Println(data)
+			} else {
+				allStr.CloseSend()
+				break
+			}
+			if i == 10 {
+				allStr.CloseSend()
+				break
+			}
 		}
 	}()
 
 	go func() {
+		var i = 0
 		for {
-			allStr.Send(&pro.StreamReqData{Data: "ssss"})
+			i++
+			allStr.Send(&greeter.StreamReqData{Data: fmt.Sprintf("client request allStream %d", i)})
 			time.Sleep(time.Second)
 		}
 	}()

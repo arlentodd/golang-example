@@ -1,9 +1,8 @@
 package main
 
 import (
-	"log"
-
 	"github.com/streadway/amqp"
+	"log"
 )
 
 func failOnError(err error, msg string) {
@@ -49,9 +48,21 @@ func main() {
 	forever := make(chan bool)
 
 	go func() {
+		// 这种写法ok，当通道关闭后不会再读取，通道中的消息
 		for d := range msgs {
 			log.Printf("Received a message: %s", d.Body)
 		}
+
+		// 这种写法，问题很大，当msgs 通道关闭时，会无限循环读取空的 通道消息
+		for {
+			select {
+			case d, ok := <-msgs:
+				if ok {
+					log.Printf("Received a message: %s", d.Body)
+				}
+			}
+		}
+
 	}()
 
 	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")

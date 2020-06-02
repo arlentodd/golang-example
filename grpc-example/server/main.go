@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"grpc/pro"
+	"google.golang.org/grpc/credentials"
+
+	"grpc-example/protoc/greeter"
 	"log"
 	"net"
 	"sync"
@@ -11,19 +14,27 @@ import (
 	"google.golang.org/grpc"
 )
 
-const PORT = ":50051"
+const Addr = "127.0.0.1:50051"
 
 type server struct {
 }
 
+//
+//func (s *server) Say(req *greeter.Request, rps greeter.Response) error {
+//}
+
+func (s *server) Say(ctx context.Context, req *greeter.Request) (*greeter.Response, error) {
+	return &greeter.Response{Message: "Hello " + req.Name + "!"}, nil
+}
+
 //服务端 单向流
-func (s *server) GetStream(req *pro.StreamReqData, res pro.Greeter_GetStreamServer) error {
+func (s *server) GetStream(req *greeter.StreamReqData, res greeter.Greeter_GetStreamServer) error {
 	i := 0
 	for {
 		i++
-		res.Send(&pro.StreamResData{Data: fmt.Sprintf("%v", time.Now().Unix())})
+		res.Send(&greeter.StreamResData{Data: fmt.Sprintf("server return getStream:%d:%v", i, time.Now().Unix())})
 		time.Sleep(1 * time.Second)
-		if i > 10 {
+		if i >= 5 {
 			break
 		}
 	}
@@ -31,11 +42,11 @@ func (s *server) GetStream(req *pro.StreamReqData, res pro.Greeter_GetStreamServ
 }
 
 //客户端 单向流
-func (s *server) PutStream(cliStr pro.Greeter_PutStreamServer) error {
+func (s *server) PutStream(cliStr greeter.Greeter_PutStreamServer) error {
 
 	for {
 		if tem, err := cliStr.Recv(); err == nil {
-			log.Println(tem)
+			log.Println("server get putStream", tem)
 		} else {
 			log.Println("break, err :", err)
 			break
@@ -46,16 +57,20 @@ func (s *server) PutStream(cliStr pro.Greeter_PutStreamServer) error {
 }
 
 //客户端服务端 双向流
-func (s *server) AllStream(allStr pro.Greeter_AllStreamServer) error {
+func (s *server) AllStream(allStr greeter.Greeter_AllStreamServer) error {
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
+	var i = 0
 	go func() {
 		for {
-			if data, err := allStr.Recv(); err == nil {
-				log.Println(data)
+			if data, err := allStr.Recv(); err == nil && i <= 10 {
+				log.Println("server get allStream", data)
+				i++
 			} else {
-				log.Println("break, err :", err)
+				if err != nil {
+					log.Println("break, err :", err)
+				}
 				break
 			}
 		}
@@ -64,7 +79,10 @@ func (s *server) AllStream(allStr pro.Greeter_AllStreamServer) error {
 
 	go func() {
 		for {
-			allStr.Send(&pro.StreamResData{Data: "ssss"})
+			err := allStr.Send(&greeter.StreamResData{Data: "server return allStream"})
+			if err != nil {
+				break
+			}
 			time.Sleep(time.Second)
 		}
 		wg.Done()
@@ -75,15 +93,21 @@ func (s *server) AllStream(allStr pro.Greeter_AllStreamServer) error {
 }
 
 func main() {
+
+	cred, err := credentials.NewServerTLSFromFile("./certs/ca.crt", "./certs/ca.key")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	//监听端口
-	lis, err := net.Listen("tcp", PORT)
+	lis, err := net.Listen("tcp",Addr)
 	if err != nil {
 		return
 	}
 	//创建一个grpc 服务器
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.Creds(cred))
 	//注册事件
-	pro.RegisterGreeterServer(s, &server{})
+	greeter.RegisterGreeterServer(s, &server{})
 	//处理链接
 	s.Serve(lis)
 }
