@@ -1,0 +1,1 @@
+protoc  --proto_path=./pro --go_out=plugins=grpc:./pro  pro/greeter.proto
